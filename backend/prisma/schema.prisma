@@ -1,0 +1,364 @@
+// Prisma Schema for AURA - AI Unified Routing and Administration
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  passwordHash    String
+  name            String
+  avatar          String?
+  isEmailVerified Boolean  @default(false)
+  isActive        Boolean  @default(true)
+  defaultOrgId    String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  memberships       OrganizationMember[]
+  conversations     Conversation[]
+  usageLogs         UsageLog[]
+  auditLogs         AuditLog[]
+  securityEvents    SecurityEvent[]
+  uploadedDocuments PolicyDocument[]     @relation("UploadedBy")
+  approvedRules     PolicyRule[]         @relation("ApprovedBy")
+  createdRules      PolicyRule[]         @relation("CreatedBy")
+  refreshTokens     RefreshToken[]
+  passwordResets    PasswordReset[]
+
+  @@map("users")
+}
+
+model Organization {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  domain      String?
+  plan        String   @default("ENTERPRISE")
+  isBlocked   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members             OrganizationMember[]
+  roles               Role[]
+  policyDocuments     PolicyDocument[]
+  policyRules         PolicyRule[]
+  dataClassifications DataClassification[]
+  conversations       Conversation[]
+  usageLogs           UsageLog[]
+  auditLogs           AuditLog[]
+  securityEvents      SecurityEvent[]
+
+  @@map("organizations")
+}
+
+model OrganizationMember {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  roleId         String
+  department     String?
+  status         String   @default("ACTIVE") // ACTIVE, SUSPENDED, INVITED
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@map("organization_members")
+}
+
+model Role {
+  id             String   @id @default(uuid())
+  name           String   // SUPER_ADMIN, ORGANIZATION_ADMIN, SECURITY_ADMIN, POLICY_ADMIN, MANAGER, EMPLOYEE
+  description    String?
+  isSystemRole   Boolean  @default(false)
+  organizationId String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization?        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members      OrganizationMember[]
+  permissions  RolePermission[]
+
+  @@unique([organizationId, name])
+  @@map("roles")
+}
+
+model Permission {
+  id          String   @id @default(uuid())
+  key         String   @unique // e.g. "users.read", "policies.upload", "models.manage"
+  description String
+  category    String   // USERS, POLICIES, MODELS, SECURITY, AUDIT, ANALYTICS
+
+  roles RolePermission[]
+
+  @@map("permissions")
+}
+
+model RolePermission {
+  id           String @id @default(uuid())
+  roleId       String
+  permissionId String
+
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permissions")
+}
+
+model Provider {
+  id           String   @id @default(uuid())
+  name         String   @unique // Gemini, OpenAI, Groq Cloud LPU, Ollama Local Instance, Local Shield
+  type         String   // OPENAI_COMPATIBLE, GEMINI, GROQ, OLLAMA, LOCAL
+  baseUrl      String?
+  isEnabled    Boolean  @default(true)
+  apiKeyEnvVar String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  models AIModel[]
+
+  @@map("providers")
+}
+
+model AIModel {
+  id                 String   @id @default(uuid())
+  name               String   // e.g. "Gemini 1.5 Pro", "OpenAI GPT-4o", "Groq Llama 3.1 70B", "Ollama Llama 3", "AURA Local Shield Engine"
+  modelId            String   // exact provider model string e.g. "gemini-1.5-pro", "gpt-4o", "llama-3.1-70b-versatile", "llama3:latest", "aura-shield-v1"
+  providerId         String
+  description        String?
+  capabilities       String   // JSON string array e.g. ["chat", "code", "complex-reasoning", "private", "fast"]
+  maxTokens          Int      @default(8192)
+  costPer1kInput     Float    @default(0.0)
+  costPer1kOutput    Float    @default(0.0)
+  isEnabled          Boolean  @default(true)
+  isDefault          Boolean  @default(false)
+  priority           Int      @default(1)
+  status             String   @default("ACTIVE") // ACTIVE, DEGRADED, UNAVAILABLE
+  minRole            String   @default("EMPLOYEE")
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  provider     Provider         @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  healthLogs   ModelHealthLog[]
+  messages     Message[]
+  usageLogs    UsageLog[]
+
+  @@map("ai_models")
+}
+
+model ModelHealthLog {
+  id           String   @id @default(uuid())
+  modelId      String
+  isAvailable  Boolean
+  responseTimeMs Int
+  errorRate    Float    @default(0.0)
+  errorMessage String?
+  createdAt    DateTime @default(now())
+
+  model AIModel @relation(fields: [modelId], references: [id], onDelete: Cascade)
+
+  @@map("model_health_logs")
+}
+
+model PolicyDocument {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String
+  documentType   String   // PRIVACY_POLICY, AI_GOVERNANCE, DATA_SECURITY, ACCEPTABLE_USE, CONFIDENTIALITY
+  version        Int      @default(1)
+  fileLocation   String
+  fileSize       Int
+  mimeType       String
+  status         String   @default("ACTIVE") // ACTIVE, INACTIVE, PENDING_REVIEW
+  extractedText  String?
+  uploadedById   String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  uploadedBy   User         @relation("UploadedBy", fields: [uploadedById], references: [id])
+  rules        PolicyRule[]
+
+  @@map("policy_documents")
+}
+
+model PolicyRule {
+  id             String   @id @default(uuid())
+  organizationId String
+  documentId     String?
+  category       String   // PRIVACY, SECURITY, GOVERNANCE, DLP, RATE_LIMIT
+  dataType       String   // EMAIL, PHONE, API_KEY, SSN, CARD, CONFIDENTIAL, CUSTOMER_PII
+  action         String   // ALLOW, MASK, BLOCK, RESTRICT, RATE_LIMIT
+  appliesTo      String   @default("ALL") // ALL, EXTERNAL_MODELS, PUBLIC_MODELS
+  priority       Int      @default(10)
+  description    String
+  status         String   @default("APPROVED") // PROPOSED, APPROVED, REJECTED, DISABLED
+  createdById    String
+  approvedById   String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  document     PolicyDocument? @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  createdBy    User            @relation("CreatedBy", fields: [createdById], references: [id])
+  approvedBy   User?           @relation("ApprovedBy", fields: [approvedById], references: [id])
+  securityEvents SecurityEvent[]
+
+  @@map("policy_rules")
+}
+
+model DataClassification {
+  id             String   @id @default(uuid())
+  organizationId String
+  name           String   // PUBLIC, INTERNAL, CONFIDENTIAL, RESTRICTED, HIGHLY_CONFIDENTIAL
+  level          Int      // 1 to 5
+  allowedModelIds String  // JSON array of model IDs
+  allowedActions  String  // JSON array: ["ALLOW", "MASK", "BLOCK"]
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@map("data_classifications")
+}
+
+model Conversation {
+  id               String   @id @default(uuid())
+  organizationId   String
+  userId           String
+  title            String
+  mode             String   @default("AUTOMATIC") // AUTOMATIC or PREFERRED
+  preferredModelId String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages     Message[]
+
+  @@map("conversations")
+}
+
+model Message {
+  id              String   @id @default(uuid())
+  conversationId  String
+  role            String   // user, assistant, system
+  content         String
+  mode            String   @default("AUTOMATIC") // AUTOMATIC or PREFERRED
+  rawPrompt       String?
+  maskedPrompt    String?
+  taskType        String?  // coding, complex-reasoning, long-context, fast-response, sensitive-confidential, general
+  routingReason   String?
+  userExplanation String?  // Normal user explanation e.g. "Selected based on coding capability and organizational security rules."
+  routingScore    Float?
+  selectedModelId String?
+  policyResult    String?  // JSON string
+  securityResult  String?  // JSON string
+  isFallback      Boolean  @default(false)
+  tokenCountInput Int      @default(0)
+  tokenCountOutput Int     @default(0)
+  latencyMs       Int      @default(0)
+  createdAt       DateTime @default(now())
+
+  conversation  Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  selectedModel AIModel?      @relation(fields: [selectedModelId], references: [id], onDelete: SetNull)
+
+  @@map("messages")
+}
+
+model UsageLog {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  modelId        String?
+  mode           String   @default("AUTOMATIC") // AUTOMATIC or PREFERRED
+  promptTokens   Int      @default(0)
+  completionTokens Int    @default(0)
+  totalTokens    Int      @default(0)
+  estimatedCost  Float    @default(0.0)
+  latencyMs      Int      @default(0)
+  status         String   @default("SUCCESS") // SUCCESS, BLOCKED, ERROR
+  errorDetails   String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  model        AIModel?     @relation(fields: [modelId], references: [id], onDelete: SetNull)
+
+  @@map("usage_logs")
+}
+
+model AuditLog {
+  id             String   @id @default(uuid())
+  organizationId String?
+  userId         String?
+  action         String   // LOGIN, LOGOUT, INVITE_USER, ROLE_CHANGE, POLICY_UPLOAD, POLICY_APPROVE, MODEL_CHANGE, BLOCKED_AI_REQUEST
+  entityType     String   // USER, POLICY, MODEL, CHAT, SECURITY
+  entityId       String?
+  details        String?  // JSON formatted details
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@map("audit_logs")
+}
+
+model SecurityEvent {
+  id             String   @id @default(uuid())
+  organizationId String
+  userId         String
+  eventType      String   // PII_DETECTED, API_KEY_DETECTED, POLICY_VIOLATION, SUSPICIOUS_ATTEMPT
+  severity       String   // LOW, MEDIUM, HIGH, CRITICAL
+  promptSnippet  String?
+  detectedData   String?  // JSON string e.g. ["EMAIL", "API_KEY"]
+  actionTaken    String   // ALLOW, MASK, BLOCK
+  policyRuleId   String?
+  ipAddress      String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  policyRule   PolicyRule?  @relation(fields: [policyRuleId], references: [id], onDelete: SetNull)
+
+  @@map("security_events")
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
+
+model PasswordReset {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  isUsed    Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("password_resets")
+}
