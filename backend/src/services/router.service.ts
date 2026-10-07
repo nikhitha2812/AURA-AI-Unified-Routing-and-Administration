@@ -5,6 +5,7 @@ import { GeminiProvider } from './ai/gemini.provider';
 import { OpenAIProvider } from './ai/openai.provider';
 import { GroqProvider } from './ai/groq.provider';
 import { OllamaProvider } from './ai/ollama.provider';
+import { OpenRouterProvider } from './ai/openrouter.provider';
 
 export interface RoutingDecision {
   selectedModel: any;
@@ -24,6 +25,7 @@ export class RouterService {
   private static openaiProvider = new OpenAIProvider();
   private static groqProvider = new GroqProvider();
   private static ollamaProvider = new OllamaProvider();
+  private static openrouterProvider = new OpenRouterProvider();
 
   /**
    * Classify prompt task type
@@ -208,6 +210,8 @@ export class RouterService {
         return this.groqProvider;
       case 'OLLAMA':
         return this.ollamaProvider;
+      case 'OPENROUTER':
+        return this.openrouterProvider;
       case 'LOCAL':
       default:
         return this.localProvider;

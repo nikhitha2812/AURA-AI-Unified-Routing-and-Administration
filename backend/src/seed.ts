@@ -258,6 +258,18 @@ async function main() {
     },
   });
 
+  const openrouterProvider = await prisma.provider.upsert({
+    where: { name: 'OpenRouter' },
+    update: {},
+    create: {
+      name: 'OpenRouter',
+      type: 'OPENROUTER',
+      baseUrl: 'https://openrouter.ai/api/v1',
+      apiKeyEnvVar: 'OPENROUTER_API_KEY',
+      isEnabled: true,
+    },
+  });
+
   // Models Catalog
   // Clear any old/duplicate model records first to guarantee a clean catalog
   await prisma.aIModel.deleteMany({});
@@ -350,6 +362,36 @@ async function main() {
       isEnabled: true,
       isDefault: false,
       priority: 6,
+      status: 'ACTIVE',
+      minRole: 'EMPLOYEE',
+    },
+    {
+      name: 'OpenRouter Auto Router',
+      modelId: 'openrouter/auto',
+      providerId: openrouterProvider.id,
+      description: 'OpenRouter unified AI model routing engine',
+      capabilities: JSON.stringify(['chat', 'code', 'complex-reasoning', 'fast']),
+      maxTokens: 128000,
+      costPer1kInput: 0.001,
+      costPer1kOutput: 0.002,
+      isEnabled: true,
+      isDefault: false,
+      priority: 2,
+      status: 'ACTIVE',
+      minRole: 'EMPLOYEE',
+    },
+    {
+      name: 'OpenRouter Llama 3.1 70B',
+      modelId: 'meta-llama/llama-3.1-70b-instruct',
+      providerId: openrouterProvider.id,
+      description: 'Meta Llama 3.1 70B Instruct model via OpenRouter API',
+      capabilities: JSON.stringify(['chat', 'code', 'complex-reasoning']),
+      maxTokens: 131072,
+      costPer1kInput: 0.00035,
+      costPer1kOutput: 0.0004,
+      isEnabled: true,
+      isDefault: false,
+      priority: 3,
       status: 'ACTIVE',
       minRole: 'EMPLOYEE',
     },
